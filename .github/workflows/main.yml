@@ -1,4 +1,4 @@
-name: Avica OCR with ngrok
+name: Avica OCR with ngrok Fixed
 
 on:
   workflow_dispatch:
@@ -8,67 +8,68 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: Install ngrok
+      - name: Install ngrok via Choco
         shell: pwsh
         run: |
-          Write-Host "Downloading ngrok..."
-          # সরাসরি ফাইল ডাউনলোড এবং একটি নির্দিষ্ট নাম (ngrok.zip) দেওয়া
-          Invoke-WebRequest -Uri "https://bin.equinox.io/c/b34edq6tiW5/ngrok-v3-stable-windows-amd64.zip" -OutFile "ngrok.zip"
+          # Chocolatey ব্যবহার করে সরাসরি ngrok ইনস্টল
+          choco install ngrok -y
           
-          if (Test-Path "ngrok.zip") {
-              Write-Host "Extracting ngrok..."
-              Expand-Archive -Path "ngrok.zip" -DestinationPath "." -Force
-              Write-Host "ngrok extraction successful!"
-          } else {
-              Write-Error "Failed to download ngrok.zip"
-              exit 1
-          }
+          # পাথ রিফ্রেশ করা যাতে ngrok কমান্ড কাজ করে
+          $env:Path += ";C:\ProgramData\chocolatey\bin"
           
-          # Auth Token সেট করা
-          .\ngrok.exe config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+          # Auth Token সেট করা (এটি অবশ্যই GitHub Secrets এ থাকতে হবে)
+          ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
 
       - name: Start ngrok Tunnel
         shell: pwsh
         run: |
-          Start-Process .\ngrok.exe -ArgumentList "tcp 3389"
+          $env:Path += ";C:\ProgramData\chocolatey\bin"
+          # TCP পোর্ট ৩৩৮৯ এর জন্য টানেল শুরু
+          Start-Process ngrok -ArgumentList "tcp 3389"
           Write-Host "Waiting for ngrok to stabilize..."
-          Start-Sleep -Seconds 15
+          Start-Sleep -Seconds 20
           
           # ngrok API থেকে পাবলিক URL বের করা
-          $response = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels"
-          $publicUrl = $response.tunnels[0].public_url
-          echo "NGROK_URL=$publicUrl" >> $env:GITHUB_ENV
-          Write-Host "Your ngrok Public URL is: $publicUrl"
+          try {
+              $response = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels"
+              $publicUrl = $response.tunnels[0].public_url
+              echo "NGROK_URL=$publicUrl" >> $env:GITHUB_ENV
+              Write-Host "Your ngrok Public URL: $publicUrl"
+          } catch {
+              Write-Error "Could not retrieve ngrok URL."
+              exit 1
+          }
 
       - name: Download and Start Avica
         shell: pwsh
         run: |
+          # Avica ডাউনলোড
           Invoke-WebRequest -Uri "https://download.avica.com/AvicaLite_v8.0.8.9.exe" -OutFile "AvicaLite.exe"
           Start-Process -FilePath ".\AvicaLite.exe"
 
       - name: Capture and Process OCR
         id: ocr_engine
-        shell: powershell
+        shell: pwsh
         run: |
           Start-Sleep -Seconds 30
-          $process = Get-Process -Name "AvicaLite" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($process) {
-              Add-Type -AssemblyName System.Windows.Forms, System.Drawing
-              $Screen = [System.Windows.Forms.Screen]::PrimaryScreen
-              $Bitmap = New-Object System.Drawing.Bitmap($Screen.Bounds.Width, $Screen.Bounds.Height)
-              $Graphics = [System.Drawing.Graphics]::FromImage($Bitmap)
-              $Graphics.CopyFromScreen($Screen.Bounds.X, $Screen.Bounds.Y, 0, 0, $Bitmap.Size)
-              $Bitmap.Save("$env:USERPROFILE\Desktop\pic.png", [System.Drawing.Imaging.ImageFormat]::Png)
-          }
+          # স্ক্রিনশট নেওয়া
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $Screen = [System.Windows.Forms.Screen]::PrimaryScreen
+          $Bitmap = New-Object System.Drawing.Bitmap($Screen.Bounds.Width, $Screen.Bounds.Height)
+          $Graphics = [System.Drawing.Graphics]::FromImage($Bitmap)
+          $Graphics.CopyFromScreen($Screen.Bounds.X, $Screen.Bounds.Y, 0, 0, $Bitmap.Size)
+          $Bitmap.Save("$env:USERPROFILE\Desktop\pic.png", [System.Drawing.Imaging.ImageFormat]::Png)
           
+          # OCR স্ক্রিপ্ট রান করা
           Invoke-WebRequest -Uri "https://gitlab.com/MR.English2008/avica/-/raw/main/OCR_Avica.py" -OutFile "screenshot.py"
           python screenshot.py
 
-      - name: Display Final Info
+      - name: Connection Summary
         shell: pwsh
         run: |
           Write-Host "=========================================="
-          Write-Host "NGROK CONNECTION: ${{ env.NGROK_URL }}"
-          Write-Host "Runner is active for 6 hours..."
+          Write-Host "NGROK TCP URL: ${{ env.NGROK_URL }}"
+          Write-Host "Check OCR output for Avica Credentials"
+          Write-Host "Runner active for 6 hours"
           Write-Host "=========================================="
           Start-Sleep -Seconds 21600
