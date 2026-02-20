@@ -9,36 +9,57 @@ jobs:
 
     steps:
       - name: Install ngrok
+        shell: pwsh
         run: |
-          curl.exe -s -L -o ngrok.zip https://bin.equinox.io/c/b34edq6tiW5/ngrok-v3-stable-windows-amd64.zip
-          Expand-Archive ngrok.zip -DestinationPath .
-          # আপনার ngrok Auth Token সেট করা (এটি আপনার Secrets এ থাকতে হবে)
+          # ngrok ডাউনলোড এবং আনজিপ করা
+          Write-Host "Downloading ngrok..."
+          Invoke-WebRequest -Uri "https://bin.equinox.io/c/b34edq6tiW5/ngrok-v3-stable-windows-amd64.zip" -OutFile "ngrok.zip"
+          
+          if (Test-Path "ngrok.zip") {
+              Expand-Archive -Path "ngrok.zip" -DestinationPath "." -Force
+              Write-Host "ngrok extraction successful!"
+          } else {
+              Write-Error "Failed to download ngrok.zip"
+              exit 1
+          }
+          
+          # Auth Token সেট করা (নিশ্চিত করুন এটি আপনার GitHub Secrets-এ আছে)
           .\ngrok.exe config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
 
       - name: Start ngrok Tunnel
         shell: pwsh
         run: |
-          # রিমোট ডেস্কটপ (RDP) এর জন্য পোর্ট 3389 ওপেন করা
+          # TCP পোর্ট ৩৩৮৯ (RDP) এর জন্য টানেল শুরু করা
           Start-Process .\ngrok.exe -ArgumentList "tcp 3389"
-          Write-Host "ngrok tunnel starting..."
-          Start-Sleep -Seconds 10
+          Write-Host "Waiting for ngrok to stabilize..."
+          Start-Sleep -Seconds 15
           
-          # পাবলিক ইউআরএল বের করা
-          $tunnels = curl.exe -s http://localhost:4040/api/tunnels | ConvertFrom-Json
-          $publicUrl = $tunnels.tunnels[0].public_url
-          echo "NGROK_URL=$publicUrl" >> $env:GITHUB_ENV
-          Write-Host "Public URL: $publicUrl"
+          # ngrok এর পাবলিক ইউআরএল উদ্ধার করা
+          try {
+              $response = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels"
+              $publicUrl = $response.tunnels[0].public_url
+              echo "NGROK_URL=$publicUrl" >> $env:GITHUB_ENV
+              Write-Host "Your ngrok Public URL is: $publicUrl"
+          } catch {
+              Write-Error "Could not retrieve ngrok URL. Make sure the tunnel is running."
+              exit 1
+          }
 
       - name: Download and Start Avica
+        shell: pwsh
         run: |
-          curl.exe -s -L -o AvicaLite.exe https://download.avica.com/AvicaLite_v8.0.8.9.exe
+          Write-Host "Downloading Avica..."
+          Invoke-WebRequest -Uri "https://download.avica.com/AvicaLite_v8.0.8.9.exe" -OutFile "AvicaLite.exe"
           Start-Process -FilePath ".\AvicaLite.exe"
+          Write-Host "Avica started."
 
       - name: Capture and Process OCR
         id: ocr_engine
         shell: powershell
         run: |
-          Start-Sleep -s 30
+          # Avica লোড হওয়ার জন্য সময় দেওয়া
+          Start-Sleep -Seconds 30
+          
           $process = Get-Process -Name "AvicaLite" -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($process) {
               Add-Type -AssemblyName System.Windows.Forms, System.Drawing
@@ -46,20 +67,26 @@ jobs:
               $Bitmap = New-Object System.Drawing.Bitmap($Screen.Bounds.Width, $Screen.Bounds.Height)
               $Graphics = [System.Drawing.Graphics]::FromImage($Bitmap)
               $Graphics.CopyFromScreen($Screen.Bounds.X, $Screen.Bounds.Y, 0, 0, $Bitmap.Size)
-              $Bitmap.Save("$env:USERPROFILE\Desktop\pic.png", [System.Drawing.Imaging.ImageFormat]::Png)
+              
+              $outputPath = "$env:USERPROFILE\Desktop\pic.png"
+              $Bitmap.Save($outputPath, [System.Drawing.Imaging.ImageFormat]::Png)
+              Write-Host "Screenshot saved at $outputPath"
           }
           
-          # আপনার পাইথন স্ক্রিপ্টটি ডাউনলোড ও রান করা
-          curl.exe -s -L -o screenshot.py https://gitlab.com/MR.English2008/avica/-/raw/main/OCR_Avica.py
+          # পাইথন স্ক্রিপ্ট ডাউনলোড এবং রান করা
+          Invoke-WebRequest -Uri "https://gitlab.com/MR.English2008/avica/-/raw/main/OCR_Avica.py" -OutFile "screenshot.py"
           $env:PYTHONWARNINGS="ignore"
           python screenshot.py
 
-      - name: Output Connection Info
+      - name: Display Final Info
+        shell: pwsh
         run: |
-          Write-Host "=== CONNECTION INFO ==="
-          Write-Host "ngrok Address: ${{ env.NGROK_URL }}"
-          Write-Host "Avica ID & Pass: (Check OCR logs above)"
-          Write-Host "======================="
+          Write-Host "`n"
+          Write-Host "=========================================="
+          Write-Host "NGROK CONNECTION: ${{ env.NGROK_URL }}"
+          Write-Host "Check the OCR output above for Avica ID/Pass"
+          Write-Host "=========================================="
+          Write-Host "Runner is staying alive for 6 hours..."
           
-          # রানারটি চালু রাখার জন্য (৬ ঘণ্টা)
+          # রানার সেশন চালু রাখা (৬ ঘণ্টা)
           Start-Sleep -Seconds 21600
