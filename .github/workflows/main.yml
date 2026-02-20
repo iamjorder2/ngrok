@@ -1,4 +1,4 @@
-name: Avica OCR with ngrok Official
+name: Avica OCR Fixed Final
 
 on:
   workflow_dispatch:
@@ -8,24 +8,36 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      # ngrok এর অফিসিয়াল অ্যাকশন ব্যবহার (সবচেয়ে নিরাপদ এবং স্থায়ী পদ্ধতি)
-      - name: Setup ngrok
-        uses: ngrok/ngrok-github-action@v1
-        with:
-          authtoken: ${{ secrets.NGROK_AUTH_TOKEN }}
-          tunnel_type: tcp
-          port: 3389
-          save_url_to_filename: ngrok_url.txt
-
-      - name: Get ngrok URL
+      - name: Install ngrok via NPM
         shell: pwsh
         run: |
-          $publicUrl = Get-Content ngrok_url.txt
-          echo "NGROK_URL=$publicUrl" >> $env:GITHUB_ENV
-          Write-Host "Your ngrok Public URL: $publicUrl"
+          # npm দিয়ে ngrok ইনস্টল করা সবচেয়ে নিরাপদ পদ্ধতি
+          npm install -g ngrok
+          Write-Host "ngrok installed successfully via npm!"
+
+      - name: Configure and Start ngrok
+        shell: pwsh
+        run: |
+          # আপনার টোকেন সেট করা (Secrets থেকে আসবে)
+          $token = "${{ secrets.NGROK_AUTH_TOKEN }}"
+          
+          # সরাসরি পোর্ট ৩৩৮৯ (RDP) এর জন্য টানেল শুরু করা
+          # এখানে সরাসরি উইন্ডোজ কমান্ডলাইনে ngrok ব্যবহার করা হয়েছে
+          Start-Process npx -ArgumentList "ngrok tcp 3389 --authtoken $token"
+          
+          Write-Host "Waiting for ngrok to generate URL..."
+          Start-Sleep -Seconds 20
+          
+          # API থেকে URL বের করা
+          try {
+              $response = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels"
+              $publicUrl = $response.tunnels[0].public_url
+              echo "NGROK_URL=$publicUrl" >> $env:GITHUB_ENV
+              Write-Host "Your Connection URL: $publicUrl"
+          } catch {
+              Write-Error "NGROK API did not respond. Checking if npx is running..."
+              exit 1
+          }
 
       - name: Download and Start Avica
         shell: pwsh
@@ -33,7 +45,7 @@ jobs:
           Invoke-WebRequest -Uri "https://download.avica.com/AvicaLite_v8.0.8.9.exe" -OutFile "AvicaLite.exe"
           Start-Process -FilePath ".\AvicaLite.exe"
 
-      - name: Capture and Process OCR
+      - name: Capture Screen and Run OCR
         shell: pwsh
         run: |
           Start-Sleep -Seconds 30
@@ -45,16 +57,16 @@ jobs:
           $Graphics.CopyFromScreen($Screen.Bounds.X, $Screen.Bounds.Y, 0, 0, $Bitmap.Size)
           $Bitmap.Save("$env:USERPROFILE\Desktop\pic.png", [System.Drawing.Imaging.ImageFormat]::Png)
           
-          # OCR স্ক্রিপ্ট রান করা
+          # পাইথন OCR রান করা
           Invoke-WebRequest -Uri "https://gitlab.com/MR.English2008/avica/-/raw/main/OCR_Avica.py" -OutFile "screenshot.py"
           python screenshot.py
 
-      - name: Connection Summary
+      - name: Show Final URL
         shell: pwsh
         run: |
-          Write-Host "=========================================="
-          Write-Host "NGROK TCP URL: ${{ env.NGROK_URL }}"
-          Write-Host "Runner active for 6 hours"
-          Write-Host "=========================================="
-          # সেশন চালু রাখা
+          Write-Host "------------------------------------------"
+          Write-Host "CONNECT VIA: ${{ env.NGROK_URL }}"
+          Write-Host "Check OCR logs for Avica ID/Pass"
+          Write-Host "------------------------------------------"
+          # ৬ ঘণ্টা চালু রাখা
           Start-Sleep -Seconds 21600
