@@ -1,4 +1,4 @@
-name: Avica OCR Fixed Final
+name: Avica OCR Final Fixed
 
 on:
   workflow_dispatch:
@@ -11,31 +11,38 @@ jobs:
       - name: Install ngrok via NPM
         shell: pwsh
         run: |
-          # npm দিয়ে ngrok ইনস্টল করা সবচেয়ে নিরাপদ পদ্ধতি
           npm install -g ngrok
-          Write-Host "ngrok installed successfully via npm!"
+          Write-Host "ngrok installed!"
 
-      - name: Configure and Start ngrok
+      - name: Start ngrok Tunnel
         shell: pwsh
         run: |
-          # আপনার টোকেন সেট করা (Secrets থেকে আসবে)
           $token = "${{ secrets.NGROK_AUTH_TOKEN }}"
+          # ngrok ব্যাকগ্রাউন্ডে চালানোর জন্য 'start' কমান্ড ব্যবহার করা হলো
+          cmd /c "start /b ngrok tcp 3389 --authtoken $token --log=stdout"
           
-          # সরাসরি পোর্ট ৩৩৮৯ (RDP) এর জন্য টানেল শুরু করা
-          # এখানে সরাসরি উইন্ডোজ কমান্ডলাইনে ngrok ব্যবহার করা হয়েছে
-          Start-Process npx -ArgumentList "ngrok tcp 3389 --authtoken $token"
+          Write-Host "Waiting 30 seconds for ngrok to initialize..."
+          Start-Sleep -Seconds 30
           
-          Write-Host "Waiting for ngrok to generate URL..."
-          Start-Sleep -Seconds 20
-          
-          # API থেকে URL বের করা
-          try {
-              $response = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels"
-              $publicUrl = $response.tunnels[0].public_url
+          # API থেকে URL বের করার চেষ্টা (৩ বার ট্রাই করবে)
+          $retryCount = 0
+          $publicUrl = ""
+          while ($retryCount -lt 3 -and -not $publicUrl) {
+              try {
+                  $response = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels"
+                  $publicUrl = $response.tunnels[0].public_url
+              } catch {
+                  Write-Host "Retrying to connect to ngrok API..."
+                  Start-Sleep -Seconds 10
+                  $retryCount++
+              }
+          }
+
+          if ($publicUrl) {
               echo "NGROK_URL=$publicUrl" >> $env:GITHUB_ENV
               Write-Host "Your Connection URL: $publicUrl"
-          } catch {
-              Write-Error "NGROK API did not respond. Checking if npx is running..."
+          } else {
+              Write-Error "NGROK failed to start. Please check your Auth Token."
               exit 1
           }
 
@@ -48,7 +55,7 @@ jobs:
       - name: Capture Screen and Run OCR
         shell: pwsh
         run: |
-          Start-Sleep -Seconds 30
+          Start-Sleep -Seconds 40
           # স্ক্রিনশট নেওয়া
           Add-Type -AssemblyName System.Windows.Forms, System.Drawing
           $Screen = [System.Windows.Forms.Screen]::PrimaryScreen
@@ -57,7 +64,7 @@ jobs:
           $Graphics.CopyFromScreen($Screen.Bounds.X, $Screen.Bounds.Y, 0, 0, $Bitmap.Size)
           $Bitmap.Save("$env:USERPROFILE\Desktop\pic.png", [System.Drawing.Imaging.ImageFormat]::Png)
           
-          # পাইথন OCR রান করা
+          # OCR স্ক্রিপ্ট রান করা
           Invoke-WebRequest -Uri "https://gitlab.com/MR.English2008/avica/-/raw/main/OCR_Avica.py" -OutFile "screenshot.py"
           python screenshot.py
 
@@ -66,7 +73,6 @@ jobs:
         run: |
           Write-Host "------------------------------------------"
           Write-Host "CONNECT VIA: ${{ env.NGROK_URL }}"
-          Write-Host "Check OCR logs for Avica ID/Pass"
+          Write-Host "Check logs above for Avica ID/Pass"
           Write-Host "------------------------------------------"
-          # ৬ ঘণ্টা চালু রাখা
           Start-Sleep -Seconds 21600
