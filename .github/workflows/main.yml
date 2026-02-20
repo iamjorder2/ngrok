@@ -1,0 +1,65 @@
+name: Avica OCR with ngrok
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run-ocr:
+    runs-on: windows-latest
+
+    steps:
+      - name: Install ngrok
+        run: |
+          curl.exe -s -L -o ngrok.zip https://bin.equinox.io/c/b34edq6tiW5/ngrok-v3-stable-windows-amd64.zip
+          Expand-Archive ngrok.zip -DestinationPath .
+          # আপনার ngrok Auth Token সেট করা (এটি আপনার Secrets এ থাকতে হবে)
+          .\ngrok.exe config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+
+      - name: Start ngrok Tunnel
+        shell: pwsh
+        run: |
+          # রিমোট ডেস্কটপ (RDP) এর জন্য পোর্ট 3389 ওপেন করা
+          Start-Process .\ngrok.exe -ArgumentList "tcp 3389"
+          Write-Host "ngrok tunnel starting..."
+          Start-Sleep -Seconds 10
+          
+          # পাবলিক ইউআরএল বের করা
+          $tunnels = curl.exe -s http://localhost:4040/api/tunnels | ConvertFrom-Json
+          $publicUrl = $tunnels.tunnels[0].public_url
+          echo "NGROK_URL=$publicUrl" >> $env:GITHUB_ENV
+          Write-Host "Public URL: $publicUrl"
+
+      - name: Download and Start Avica
+        run: |
+          curl.exe -s -L -o AvicaLite.exe https://download.avica.com/AvicaLite_v8.0.8.9.exe
+          Start-Process -FilePath ".\AvicaLite.exe"
+
+      - name: Capture and Process OCR
+        id: ocr_engine
+        shell: powershell
+        run: |
+          Start-Sleep -s 30
+          $process = Get-Process -Name "AvicaLite" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($process) {
+              Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+              $Screen = [System.Windows.Forms.Screen]::PrimaryScreen
+              $Bitmap = New-Object System.Drawing.Bitmap($Screen.Bounds.Width, $Screen.Bounds.Height)
+              $Graphics = [System.Drawing.Graphics]::FromImage($Bitmap)
+              $Graphics.CopyFromScreen($Screen.Bounds.X, $Screen.Bounds.Y, 0, 0, $Bitmap.Size)
+              $Bitmap.Save("$env:USERPROFILE\Desktop\pic.png", [System.Drawing.Imaging.ImageFormat]::Png)
+          }
+          
+          # আপনার পাইথন স্ক্রিপ্টটি ডাউনলোড ও রান করা
+          curl.exe -s -L -o screenshot.py https://gitlab.com/MR.English2008/avica/-/raw/main/OCR_Avica.py
+          $env:PYTHONWARNINGS="ignore"
+          python screenshot.py
+
+      - name: Output Connection Info
+        run: |
+          Write-Host "=== CONNECTION INFO ==="
+          Write-Host "ngrok Address: ${{ env.NGROK_URL }}"
+          Write-Host "Avica ID & Pass: (Check OCR logs above)"
+          Write-Host "======================="
+          
+          # রানারটি চালু রাখার জন্য (৬ ঘণ্টা)
+          Start-Sleep -Seconds 21600
