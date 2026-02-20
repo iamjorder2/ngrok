@@ -1,4 +1,4 @@
-name: Avica OCR with ngrok Fixed
+name: Avica OCR with ngrok Official
 
 on:
   workflow_dispatch:
@@ -8,47 +8,32 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: Install ngrok via Choco
-        shell: pwsh
-        run: |
-          # Chocolatey ব্যবহার করে সরাসরি ngrok ইনস্টল
-          choco install ngrok -y
-          
-          # পাথ রিফ্রেশ করা যাতে ngrok কমান্ড কাজ করে
-          $env:Path += ";C:\ProgramData\chocolatey\bin"
-          
-          # Auth Token সেট করা (এটি অবশ্যই GitHub Secrets এ থাকতে হবে)
-          ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-      - name: Start ngrok Tunnel
+      # ngrok এর অফিসিয়াল অ্যাকশন ব্যবহার (সবচেয়ে নিরাপদ এবং স্থায়ী পদ্ধতি)
+      - name: Setup ngrok
+        uses: ngrok/ngrok-github-action@v1
+        with:
+          authtoken: ${{ secrets.NGROK_AUTH_TOKEN }}
+          tunnel_type: tcp
+          port: 3389
+          save_url_to_filename: ngrok_url.txt
+
+      - name: Get ngrok URL
         shell: pwsh
         run: |
-          $env:Path += ";C:\ProgramData\chocolatey\bin"
-          # TCP পোর্ট ৩৩৮৯ এর জন্য টানেল শুরু
-          Start-Process ngrok -ArgumentList "tcp 3389"
-          Write-Host "Waiting for ngrok to stabilize..."
-          Start-Sleep -Seconds 20
-          
-          # ngrok API থেকে পাবলিক URL বের করা
-          try {
-              $response = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels"
-              $publicUrl = $response.tunnels[0].public_url
-              echo "NGROK_URL=$publicUrl" >> $env:GITHUB_ENV
-              Write-Host "Your ngrok Public URL: $publicUrl"
-          } catch {
-              Write-Error "Could not retrieve ngrok URL."
-              exit 1
-          }
+          $publicUrl = Get-Content ngrok_url.txt
+          echo "NGROK_URL=$publicUrl" >> $env:GITHUB_ENV
+          Write-Host "Your ngrok Public URL: $publicUrl"
 
       - name: Download and Start Avica
         shell: pwsh
         run: |
-          # Avica ডাউনলোড
           Invoke-WebRequest -Uri "https://download.avica.com/AvicaLite_v8.0.8.9.exe" -OutFile "AvicaLite.exe"
           Start-Process -FilePath ".\AvicaLite.exe"
 
       - name: Capture and Process OCR
-        id: ocr_engine
         shell: pwsh
         run: |
           Start-Sleep -Seconds 30
@@ -69,7 +54,7 @@ jobs:
         run: |
           Write-Host "=========================================="
           Write-Host "NGROK TCP URL: ${{ env.NGROK_URL }}"
-          Write-Host "Check OCR output for Avica Credentials"
           Write-Host "Runner active for 6 hours"
           Write-Host "=========================================="
+          # সেশন চালু রাখা
           Start-Sleep -Seconds 21600
