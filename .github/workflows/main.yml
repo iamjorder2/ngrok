@@ -13,13 +13,13 @@ jobs:
         run: |
           # ngrok ডাউনলোড এবং আনজিপ করা
           Write-Host "Downloading ngrok..."
-          Invoke-WebRequest -Uri "https://bin.equinox.io/c/b34edq6tiW5/ngrok-v3-stable-windows-amd64.zip" -OutFile "ngrok.zip"
+          Invoke-WebRequest -Uri "https://bin.ngrok.com/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip" -OutFile "ngrok-v3-stable-windows-amd64.zip"
           
-          if (Test-Path "ngrok.zip") {
-              Expand-Archive -Path "ngrok.zip" -DestinationPath "." -Force
+          if (Test-Path "ngrok-v3-stable-windows-amd64") {
+              Expand-Archive -Path "ngrok-v3-stable-windows-amd64" -DestinationPath "." -Force
               Write-Host "ngrok extraction successful!"
           } else {
-              Write-Error "Failed to download ngrok.zip"
+              Write-Error "Failed to download ngrok-v3-stable-windows-amd64"
               exit 1
           }
           
